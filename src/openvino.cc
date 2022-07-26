@@ -737,7 +737,11 @@ class ModelInstanceState : public BackendModelInstance {
   std::string model_path_;
 
   std::string device_;
-  InferenceEngine::InferRequest infer_request_;
+
+  //changed by zhaohb
+  ov::InferRequest infer_request_;
+  //InferenceEngine::InferRequest infer_request_;
+
   std::map<std::string, InferenceEngine::Blob::Ptr> input_blobs_;
 
   size_t batch_pad_size_;
