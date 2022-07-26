@@ -114,7 +114,10 @@ class ModelState : public BackendModel {
   // the specified device.
   bool NetworkNotLoaded(const std::string device_);
 
-  InferenceEngine::CNNNetwork* Network() { return &network_; }
+  //change by zhaohb for support ov 2022.1
+  std::shared_ptr<ov::Model>* Network() { return &network_; }
+  //InferenceEngine::CNNNetwork* Network() { return &network_; }
+
   bool SkipDynamicBatchSize() { return skip_dynamic_batchsize_; }
   bool EnableBatchPadding() { return enable_padding_; }
 
@@ -124,13 +127,17 @@ class ModelState : public BackendModel {
 
   //add by zhaohb for ov 2022.1
   ov::Core core;
-
   // Shared resources among the multiple instances.
-  InferenceEngine::Core inference_engine_;
+  //change by zhaohb for ov 2022.1
+  //InferenceEngine::Core inference_engine_;
+
   //del by zhaohb
   //InferenceEngine::CNNNetwork network_;
   std::shared_ptr<ov::Model> network_;
-  std::map<std::string, InferenceEngine::ExecutableNetwork> executable_network_;
+
+  //changed by zhaohb for support 2022.1
+  std::map<std::string, ov::CompiledModel> executable_network_;
+  //std::map<std::string, InferenceEngine::ExecutableNetwork> executable_network_;
   // Maps device to their respective parameters
 
   // change by zhaohb for ov 2022
