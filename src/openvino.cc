@@ -103,7 +103,9 @@ class ModelState : public BackendModel {
 
   // Creates an infer request object on the specified device.
   TRITONSERVER_Error* CreateInferRequest(
-      const std::string& device, InferenceEngine::InferRequest* infer_request);
+      //changed by zhaohb for support ov 2022.1
+      const std::string& device, ov::InferRequest* infer_request);
+      //const std::string& device, InferenceEngine::InferRequest* infer_request);
 
   TRITONSERVER_Error* GetInputsInfo(
       InferenceEngine::InputsDataMap* input_tensor_infos);
@@ -474,10 +476,12 @@ ModelState::LoadNetwork(
 
 TRITONSERVER_Error*
 ModelState::CreateInferRequest(
-    const std::string& device, InferenceEngine::InferRequest* infer_request)
+    const std::string& device, ov::InferRequest* infer_request)
+    //const std::string& device, InferenceEngine::InferRequest* infer_request)
 {
   RETURN_IF_OPENVINO_ASSIGN_ERROR(
-      *infer_request, executable_network_[device].CreateInferRequest(),
+      *infer_request, executable_network_[device].create_infer_request(),
+      //*infer_request, executable_network_[device].CreateInferRequest(),
       "creating infer request object");
 
   return nullptr;
