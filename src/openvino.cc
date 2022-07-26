@@ -107,8 +107,9 @@ class ModelState : public BackendModel {
       const std::string& device, ov::InferRequest* infer_request);
       //const std::string& device, InferenceEngine::InferRequest* infer_request);
 
-  TRITONSERVER_Error* GetInputsInfo(
-      InferenceEngine::InputsDataMap* input_tensor_infos);
+  //delete by zhaohb, can find api in 2022.1
+  //TRITONSERVER_Error* GetInputsInfo(
+  //    InferenceEngine::InputsDataMap* input_tensor_infos);
 
   // Whether or not the network is read successfully
   bool NetworkNotRead();
@@ -521,7 +522,7 @@ TRITONSERVER_Error*
 ModelState::ValidateInputs(const size_t expected_input_cnt)
 {
   InferenceEngine::InputsDataMap input_tensor_infos;
-  RETURN_IF_ERROR(GetInputsInfo(&input_tensor_infos));
+  //RETURN_IF_ERROR(GetInputsInfo(&input_tensor_infos));
   if (input_tensor_infos.size() != expected_input_cnt) {
     return TRITONSERVER_ErrorNew(
         TRITONSERVER_ERROR_INVALID_ARG,
@@ -658,6 +659,8 @@ ModelState::ValidateOutputs()
   return nullptr;  // success
 }
 
+#if 0
+//del by zhaohb 
 TRITONSERVER_Error*
 ModelState::GetInputsInfo(InferenceEngine::InputsDataMap* input_tensor_infos)
 {
@@ -666,6 +669,7 @@ ModelState::GetInputsInfo(InferenceEngine::InputsDataMap* input_tensor_infos)
 
   return nullptr;
 }
+#endif
 
 TRITONSERVER_Error*
 ModelState::AutoCompleteConfig()
@@ -1083,7 +1087,8 @@ ModelInstanceState::SetInputTensors(
   RETURN_IF_ERROR(TRITONBACKEND_RequestInputCount(requests[0], &input_count));
 
   InferenceEngine::InputsDataMap input_tensor_infos;
-  RETURN_IF_ERROR(model_state_->GetInputsInfo(&input_tensor_infos));
+  //del by zhaohb 
+  //RETURN_IF_ERROR(model_state_->GetInputsInfo(&input_tensor_infos));
 
   BackendInputCollector collector(
       requests, request_count, responses, model_state_->TritonMemoryManager(),
