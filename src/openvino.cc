@@ -25,6 +25,10 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <stdint.h>
+
+#include <openvino/openvino.hpp>
+#include <openvino/pass/serialize.hpp>
+
 #include <inference_engine.hpp>
 #include <mutex>
 #include <vector>
@@ -118,9 +122,14 @@ class ModelState : public BackendModel {
   ModelState(TRITONBACKEND_Model* triton_model);
   TRITONSERVER_Error* AutoCompleteConfig();
 
+  //add by zhaohb for ov 2022.1
+  ov::Core core;
+
   // Shared resources among the multiple instances.
   InferenceEngine::Core inference_engine_;
-  InferenceEngine::CNNNetwork network_;
+  //del by zhaohb
+  //InferenceEngine::CNNNetwork network_;
+  std::shared_ptr<ov::Model> network_;
   std::map<std::string, InferenceEngine::ExecutableNetwork> executable_network_;
   // Maps device to their respective parameters
   std::map<std::string, std::map<std::string, std::string>> config_;
@@ -224,7 +233,9 @@ ModelState::ReadNetwork(
   }
 
   RETURN_IF_OPENVINO_ASSIGN_ERROR(
-      network_, inference_engine_.ReadNetwork(*model_path), "reading network");
+      network_, core.read_model(*model_path), "reading network");
+      //del by zhaohb
+      //network_, inference_engine_.ReadNetwork(*model_path), "reading network");
 
   network_read_ = true;
   return nullptr;  // success
@@ -279,10 +290,14 @@ ModelState::LoadCpuExtensions(triton::common::TritonJson::Value& params)
   if (!cpu_ext_path.empty()) {
     // CPU (MKLDNN) extensions is loaded as a shared library and passed as a
     // pointer to base extension
-    const auto extension_ptr =
-        std::make_shared<InferenceEngine::Extension>(cpu_ext_path);
+
+    //del by zhaohb
+    //const auto extension_ptr =
+        //std::make_shared<InferenceEngine::Extension>(cpu_ext_path);
     RETURN_IF_OPENVINO_ERROR(
-        inference_engine_.AddExtension(extension_ptr),
+	//del by zhaohb
+        //inference_engine_.AddExtension(extension_ptr),
+	core.add_extension(cpu_ext_path),
         " loading custom CPU extensions");
     LOG_MESSAGE(
         TRITONSERVER_LOG_INFO,
