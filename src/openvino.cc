@@ -132,7 +132,11 @@ class ModelState : public BackendModel {
   std::shared_ptr<ov::Model> network_;
   std::map<std::string, InferenceEngine::ExecutableNetwork> executable_network_;
   // Maps device to their respective parameters
-  std::map<std::string, std::map<std::string, std::string>> config_;
+
+  // change by zhaohb for ov 2022
+  std::map<std::string, ov::AnyMap> config_;
+  //std::map<std::string, std::map<std::string, std::string>> config_;
+
   bool network_read_;
   bool skip_dynamic_batchsize_;
   bool enable_padding_;
