@@ -434,17 +434,28 @@ ModelState::LoadNetwork(
   LOG_MESSAGE(
       TRITONSERVER_LOG_VERBOSE,
       (std::string("InferenceEngine: ") +
-       InferenceEngine::GetInferenceEngineVersion()->description)
+       // change by zhohb for ov 2022.1
+       ov::get_openvino_version()->description)
+       //InferenceEngine::GetInferenceEngineVersion()->description)
           .c_str());
   LOG_MESSAGE(
       TRITONSERVER_LOG_VERBOSE,
       (std::string("Device info: \n") +
-       ConvertVersionMapToString(inference_engine_.GetVersions(device)))
+       // change by zhaohb for ov 2022.1
+       ConvertVersionMapToString(core.get_versions(device)))
+       //ConvertVersionMapToString(inference_engine_.GetVersions(device)))
           .c_str());
+
+  // change by zhaohb for ov 2022.1
+  for (auto&& item : network_config) {
+      core.set_property(item.first, item.second);
+  }
 
   RETURN_IF_OPENVINO_ASSIGN_ERROR(
       executable_network_[device],
-      inference_engine_.LoadNetwork(network_, device, network_config),
+      // change by zhaohb for ov 2022.1
+      //inference_engine_.LoadNetwork(network_, device, network_config),
+      core.compile_model(network_, device),
       "loading network");
 
   return nullptr;  // success
