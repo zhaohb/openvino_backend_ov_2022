@@ -92,8 +92,9 @@ class ModelState : public BackendModel {
       const std::string& artifact_name, std::string* model_path);
 
   TRITONSERVER_Error* ValidateConfigureNetwork();
-  TRITONSERVER_Error* ValidateInputs(const size_t expected_input_cnt);
-  TRITONSERVER_Error* ValidateOutputs();
+  //del by zhaohb
+  //TRITONSERVER_Error* ValidateInputs(const size_t expected_input_cnt);
+  //TRITONSERVER_Error* ValidateOutputs();
 
   // Loads the configured model on the target device (currently only CPU) is
   // supported.
@@ -513,12 +514,14 @@ ModelState::ValidateConfigureNetwork()
     }
   }
 
-  RETURN_IF_ERROR(ValidateInputs(expected_input_cnt));
-  RETURN_IF_ERROR(ValidateOutputs());
+  //del by zhaohb
+  //RETURN_IF_ERROR(ValidateInputs(expected_input_cnt));
+  //RETURN_IF_ERROR(ValidateOutputs());
 
   return nullptr;  // success
 }
 
+#if 0
 TRITONSERVER_Error*
 ModelState::ValidateInputs(const size_t expected_input_cnt)
 {
@@ -659,6 +662,7 @@ ModelState::ValidateOutputs()
 
   return nullptr;  // success
 }
+#endif
 
 #if 0
 //del by zhaohb 
@@ -1068,7 +1072,9 @@ ModelInstanceState::Infer(
     std::vector<TRITONBACKEND_Response*>* responses,
     const uint32_t response_count)
 {
-  RETURN_IF_OPENVINO_ERROR(infer_request_.Infer(), "running inference");
+  //changed by zhaohb
+  RETURN_IF_OPENVINO_ERROR(infer_request_.infer(), "running inference");
+  //RETURN_IF_OPENVINO_ERROR(infer_request_.Infer(), "running inference");
 
   return nullptr;
 }
