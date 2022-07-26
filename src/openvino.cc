@@ -428,7 +428,8 @@ ModelState::ConfigureInferenceEngine()
 {
   for (auto&& item : config_) {
     RETURN_IF_OPENVINO_ERROR(
-        inference_engine_.SetConfig(item.second, item.first),
+        core.set_property(item.first, item.second),
+        //inference_engine_.SetConfig(item.second, item.first),
         "configuring inference engine");
   }
 
