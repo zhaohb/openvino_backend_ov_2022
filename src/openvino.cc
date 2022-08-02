@@ -79,7 +79,9 @@ class ModelState : public BackendModel {
       bool* setting);
   TRITONSERVER_Error* ParseParameter(
       const std::string& mkey, triton::common::TritonJson::Value& params,
-      std::map<std::string, std::string>* device_config);
+      //del by zhaohb
+      //std::map<std::string, std::string>* device_config);
+      std::map<std::string, ov::Any>* device_config);
   TRITONSERVER_Error* ParseParameterHelper(
       const std::string& mkey, std::string* ov_key, std::string* value);
 
@@ -344,7 +346,7 @@ ModelState::ParseBoolParameter(
 TRITONSERVER_Error*
 ModelState::ParseParameter(
     const std::string& mkey, triton::common::TritonJson::Value& params,
-    std::map<std::string, std::string>* device_config)
+    std::map<std::string, ov::Any>* device_config)
 {
   std::string value;
   ReadParameter(params, mkey, &(value));
