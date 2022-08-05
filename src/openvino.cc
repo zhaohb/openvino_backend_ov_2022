@@ -102,7 +102,7 @@ class ModelState : public BackendModel {
   // supported.
   TRITONSERVER_Error* LoadNetwork(
       const std::string& device,
-      const std::map<std::string, std::string> network_config);
+      const std::map<std::string, ov::AnyMap> network_config);
 
   // Creates an infer request object on the specified device.
   TRITONSERVER_Error* CreateInferRequest(
@@ -442,18 +442,21 @@ ModelState::ConfigureInferenceEngine()
 TRITONSERVER_Error*
 ModelState::LoadNetwork(
     const std::string& device,
-    const std::map<std::string, std::string> network_config)
+    const std::map<std::string, ov::AnyMap> network_config)
+    //del by zhaohb
+    //const std::map<std::string, std::string> network_config)
 {
   RETURN_ERROR_IF_FALSE(
       NetworkNotLoaded(device), TRITONSERVER_ERROR_INTERNAL,
       std::string("attempt to load model '") + Name() + "' on device '" +
           device + "' more than once");
 
+#if 0
   LOG_MESSAGE(
       TRITONSERVER_LOG_VERBOSE,
       (std::string("InferenceEngine: ") +
        // change by zhohb for ov 2022.1
-       ov::get_openvino_version()->description)
+       ov::get_openvino_version())
        //InferenceEngine::GetInferenceEngineVersion()->description)
           .c_str());
   LOG_MESSAGE(
@@ -464,6 +467,7 @@ ModelState::LoadNetwork(
        //ConvertVersionMapToString(inference_engine_.GetVersions(device)))
           .c_str());
 
+#endif
   // change by zhaohb for ov 2022.1
   for (auto&& item : network_config) {
       core.set_property(item.first, item.second);
@@ -516,6 +520,7 @@ ModelState::ValidateConfigureNetwork()
     }
   }
 
+  printf("expected_input_cnt: %ld\n", expected_input_cnt);
   //del by zhaohb
   //RETURN_IF_ERROR(ValidateInputs(expected_input_cnt));
   //RETURN_IF_ERROR(ValidateOutputs());
@@ -802,13 +807,15 @@ ModelInstanceState::ModelInstanceState(
   if (model_state_->NetworkNotLoaded(device_)) {
     THROW_IF_BACKEND_INSTANCE_ERROR(model_state_->ParseParameters(device_));
     // enable dynamic batching in the network
-    std::map<std::string, std::string> network_config;
-    if ((model_state_->MaxBatchSize() != 0) &&
-        (!model_state_->SkipDynamicBatchSize())) {
-      network_config
-          [InferenceEngine::PluginConfigParams::KEY_DYN_BATCH_ENABLED] =
-              InferenceEngine::PluginConfigParams::YES;
-    }
+    std::map<std::string, ov::AnyMap> network_config;
+    //del by zhaohb
+    //std::map<std::string, std::string> network_config;
+    //if ((model_state_->MaxBatchSize() != 0) &&
+    //    (!model_state_->SkipDynamicBatchSize())) {
+    //  network_config
+    //      [InferenceEngine::PluginConfigParams::KEY_DYN_BATCH_ENABLED] =
+    //          InferenceEngine::PluginConfigParams::YES;
+    //}
     THROW_IF_BACKEND_INSTANCE_ERROR(model_state_->ConfigureInferenceEngine());
     THROW_IF_BACKEND_INSTANCE_ERROR(
         model_state_->LoadNetwork(device_, network_config));
