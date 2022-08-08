@@ -28,11 +28,14 @@
 
 #include <openvino/openvino.hpp>
 #include <openvino/pass/serialize.hpp>
+#include <openvino/runtime/tensor.hpp>
 
 #include <inference_engine.hpp>
 #include <mutex>
 #include <vector>
+#include <string>
 #include "openvino_utils.h"
+#include "shared_tensor_allocator.h"
 #include "triton/backend/backend_input_collector.h"
 #include "triton/backend/backend_memory.h"
 #include "triton/backend/backend_model.h"
@@ -1074,8 +1077,8 @@ ModelInstanceState::ProcessRequests(
 TRITONSERVER_Error*
 ModelInstanceState::SetBatch(const int batch_size)
 {
-  RETURN_IF_OPENVINO_ERROR(
-      infer_request_.SetBatch(batch_size), "setting batch size");
+  //RETURN_IF_OPENVINO_ERROR(
+  //    infer_request_.SetBatch(batch_size), "setting batch size");
 
   return nullptr;
 }
@@ -1099,6 +1102,7 @@ ModelInstanceState::SetInputTensors(
     std::vector<TRITONBACKEND_Response*>* responses,
     std::vector<const char*>* input_names)
 {
+#if 1
   const int max_batch_size = model_state_->MaxBatchSize();
 
   // All requests must have equally-sized input tensors so use any
@@ -1106,7 +1110,8 @@ ModelInstanceState::SetInputTensors(
   uint32_t input_count;
   RETURN_IF_ERROR(TRITONBACKEND_RequestInputCount(requests[0], &input_count));
 
-  InferenceEngine::InputsDataMap input_tensor_infos;
+  //InferenceEngine::InputsDataMap input_tensor_infos;
+  std::map<std::string, ov::TensorVector> inputsData;
   //del by zhaohb 
   //RETURN_IF_ERROR(model_state_->GetInputsInfo(&input_tensor_infos));
 
@@ -1138,6 +1143,7 @@ ModelInstanceState::SetInputTensors(
 
     const int64_t batchn_byte_size = GetByteSize(input_datatype, batchn_shape);
 
+#if 0
     if (batch_pad_size_ != 0) {
       if (input_blobs_.find(input_name) == input_blobs_.end()) {
         input_blobs_[input_name] =
@@ -1162,7 +1168,9 @@ ModelInstanceState::SetInputTensors(
           infer_request_.SetBlob(input_name, data_blob),
           "setting the input tensor data");
     } else {
+#endif
       const char* input_buffer;
+      //const char* input_buffer;
       size_t buffer_byte_size;
       TRITONSERVER_MemoryType memory_type;
       int64_t memory_type_id;
@@ -1187,15 +1195,47 @@ ModelInstanceState::SetInputTensors(
       }
 
       // Set the input blob to the buffer without allocating any new memory
+      auto allocator = std::make_shared<SharedTensorAllocator>(batchn_byte_size);
+      auto data = reinterpret_cast<float*>(allocator->get_buffer());
+
+      const void* input_buffer_ptr = (const void *)(input_buffer);
+      auto input_data = reinterpret_cast<float*>(const_cast<void*>(input_buffer_ptr));
+      int64_t input_size = GetElementCount(batchn_shape);
+      //int input_size = 256*3096;
+      for(int i =0; i < input_size; i++)
+          data[i] = input_data[i];
+      //(allocator->get_buffer()) = &data;
+      //auto reinterpret_cast<float*>(allocator->get_buffer()) = reinterpret_cast<float*>((input_buffer));
+      std::vector<unsigned long, std::allocator<unsigned long>> input_shape_tmp;
+      //input_shape_tmp.push_back(256);
+      //input_shape_tmp.push_back(3096);
+      for(unsigned long i = 0; i < batchn_shape.size(); i++)
+      {
+         input_shape_tmp.push_back(batchn_shape[i]);
+      }
+      //auto input_shape_tmp = ov::Shape(batchn_shape);
+      auto input_tensor = ov::Tensor(ov::element::f32, input_shape_tmp, ov::Allocator(allocator));
+      //inputsData[input_name].push_back(input_tensor);  
+
+      //infer_request_.set_tensor(input_tensor);
+      auto requestTensor = infer_request_.get_tensor(input_name);
+      if (input_tensor.get_shape() != requestTensor.get_shape() || input_tensor.get_byte_size() != requestTensor.get_byte_size()) {
+	      throw std::runtime_error(
+			      "Source and destination tensors shapes and byte sizes are expected to be equal for data copying.");
+      }
+
+      memcpy(requestTensor.data(), input_tensor.data(), input_tensor.get_byte_size());
+#if 0
       auto data_blob = WrapInputBufferToBlob(
           input_tensor_infos[input_name]->getTensorDesc(), input_buffer,
           batchn_byte_size);
       RETURN_IF_OPENVINO_ERROR(
           infer_request_.SetBlob(input_name, data_blob),
           "setting the input tensor data");
-    }
+#endif
+ //  }
   }
-
+#endif
   return nullptr;
 }
 
@@ -1205,6 +1245,7 @@ ModelInstanceState::ReadOutputTensors(
     TRITONBACKEND_Request** requests, const uint32_t request_count,
     std::vector<TRITONBACKEND_Response*>* responses)
 {
+#if 0
   BackendOutputResponder responder(
       requests, request_count, responses, model_state_->TritonMemoryManager(),
       model_state_->MaxBatchSize() > 0, model_state_->EnablePinnedInput(),
@@ -1233,7 +1274,7 @@ ModelInstanceState::ReadOutputTensors(
 
   // Finalize and wait for any pending buffer copies.
   cuda_copy |= responder.Finalize();
-
+#endif
   return nullptr;
 }
 
