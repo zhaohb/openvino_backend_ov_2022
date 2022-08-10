@@ -1196,14 +1196,47 @@ ModelInstanceState::SetInputTensors(
 
       // Set the input blob to the buffer without allocating any new memory
       auto allocator = std::make_shared<SharedTensorAllocator>(batchn_byte_size);
+#if 1
+      if (input_datatype == TRITONSERVER_TYPE_FP32){
+          auto data = reinterpret_cast<float*>(allocator->get_buffer());
+          const void* input_buffer_ptr = (const void *)(input_buffer);
+          auto input_data = reinterpret_cast<float*>(const_cast<void*>(input_buffer_ptr));
+          int64_t input_size = GetElementCount(batchn_shape);
+          for(int i =0; i < input_size; i++)
+          {
+              //printf("input_data: %f\n", input_data[i]);
+              data[i] = input_data[i];
+          }
+      }
+      if (input_datatype == TRITONSERVER_TYPE_INT32){
+          auto data = reinterpret_cast<int32_t*>(allocator->get_buffer());
+          const void* input_buffer_ptr = (const void *)(input_buffer);
+          auto input_data = reinterpret_cast<int32_t*>(const_cast<void*>(input_buffer_ptr));
+          int64_t input_size = GetElementCount(batchn_shape);
+          for(int i =0; i < input_size; i++)
+          {
+              //printf("input_data: %d\n", input_data[i]);
+              data[i] = input_data[i];
+          }
+      }
+#else
       auto data = reinterpret_cast<float*>(allocator->get_buffer());
 
       const void* input_buffer_ptr = (const void *)(input_buffer);
       auto input_data = reinterpret_cast<float*>(const_cast<void*>(input_buffer_ptr));
       int64_t input_size = GetElementCount(batchn_shape);
+#endif
+#if 0
       //int input_size = 256*3096;
+      printf("input_size: %ld\n", input_size);
+#endif
+#if 0
       for(int i =0; i < input_size; i++)
+      {
+          printf("input_data: %f\n", input_data[i]);
           data[i] = input_data[i];
+      }
+#endif
       //(allocator->get_buffer()) = &data;
       //auto reinterpret_cast<float*>(allocator->get_buffer()) = reinterpret_cast<float*>((input_buffer));
       std::vector<unsigned long, std::allocator<unsigned long>> input_shape_tmp;
@@ -1214,11 +1247,18 @@ ModelInstanceState::SetInputTensors(
          input_shape_tmp.push_back(batchn_shape[i]);
       }
       //auto input_shape_tmp = ov::Shape(batchn_shape);
-      auto input_tensor = ov::Tensor(ov::element::f32, input_shape_tmp, ov::Allocator(allocator));
+      ov::Tensor input_tensor;
+      if (input_datatype == TRITONSERVER_TYPE_INT32)
+          input_tensor = ov::Tensor(ov::element::i32, input_shape_tmp, ov::Allocator(allocator));
+      if (input_datatype == TRITONSERVER_TYPE_FP32)
+          input_tensor = ov::Tensor(ov::element::f32, input_shape_tmp, ov::Allocator(allocator));
       //inputsData[input_name].push_back(input_tensor);  
 
       //infer_request_.set_tensor(input_tensor);
       auto requestTensor = infer_request_.get_tensor(input_name);
+#if 0
+      printf("input_name: %s, input get_byte_size: %zu, output get_byte_size: %zu\n", input_name, input_tensor.get_byte_size(), requestTensor.get_byte_size());
+#endif
       if (input_tensor.get_shape() != requestTensor.get_shape() || input_tensor.get_byte_size() != requestTensor.get_byte_size()) {
 	      throw std::runtime_error(
 			      "Source and destination tensors shapes and byte sizes are expected to be equal for data copying.");
@@ -1245,7 +1285,7 @@ ModelInstanceState::ReadOutputTensors(
     TRITONBACKEND_Request** requests, const uint32_t request_count,
     std::vector<TRITONBACKEND_Response*>* responses)
 {
-#if 0
+#if 1
   BackendOutputResponder responder(
       requests, request_count, responses, model_state_->TritonMemoryManager(),
       model_state_->MaxBatchSize() > 0, model_state_->EnablePinnedInput(),
@@ -1255,21 +1295,33 @@ ModelInstanceState::ReadOutputTensors(
   for (size_t idx = 0; idx < output_names.size(); idx++) {
     std::string name = output_names[idx];
 
-    InferenceEngine::Blob::Ptr output_blob;
+    //InferenceEngine::Blob::Ptr output_blob;
+    ov::Tensor output_blob;
     RETURN_IF_OPENVINO_ASSIGN_ERROR(
-        output_blob, infer_request_.GetBlob(name),
+        //output_blob, infer_request_.GetBlob(name),
+        output_blob, infer_request_.get_tensor(name),
         "reading output tensor blob ");
     auto output_shape =
-        ConvertToSignedShape(output_blob->getTensorDesc().getDims());
+        ConvertToSignedShape(output_blob.get_shape());
+        //ConvertToSignedShape(output_blob->getTensorDesc().getDims());
 
-    RETURN_IF_ERROR(ValidateOutputBatchSize(&output_shape));
+    //RETURN_IF_ERROR(ValidateOutputBatchSize(&output_shape));
+#if 0
+    const float * output_data = reinterpret_cast<const float*>(output_blob.data());
+    for(int i = 0; i < 3089; i++)
+    {
+        printf("output[%d]: %f\n", i, output_data[i]);
+    }
+#endif
 
-    auto const mem_locker = output_blob->cbuffer();
+    //auto const mem_locker = output_blob.cbuffer();
     responder.ProcessTensor(
         name,
-        ConvertFromOpenVINOPrecision(
-            output_blob->getTensorDesc().getPrecision()),
-        output_shape, mem_locker.as<const char*>(), TRITONSERVER_MEMORY_CPU, 0);
+        TRITONSERVER_TYPE_FP32,
+        //ConvertFromOpenVINOPrecision(
+            //output_blob.get_element_type()),
+        output_shape, reinterpret_cast<const char*>(output_blob.data()), TRITONSERVER_MEMORY_CPU, 0);
+        //output_shape, mem_locker.as<const char*>(), TRITONSERVER_MEMORY_CPU, 0);
   }
 
   // Finalize and wait for any pending buffer copies.
