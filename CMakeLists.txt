@@ -168,6 +168,7 @@ add_library(
   src/openvino.cc
   src/openvino_utils.cc
   src/openvino_utils.h
+  src/infer_request_wrap.h
 )
 
 add_library(

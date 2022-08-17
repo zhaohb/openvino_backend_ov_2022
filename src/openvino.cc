@@ -35,6 +35,7 @@
 #include <vector>
 #include <string>
 #include "openvino_utils.h"
+#include "infer_request_wrap.h"
 #include "shared_tensor_allocator.h"
 #include "triton/backend/backend_input_collector.h"
 #include "triton/backend/backend_memory.h"
@@ -110,7 +111,7 @@ class ModelState : public BackendModel {
   // Creates an infer request object on the specified device.
   TRITONSERVER_Error* CreateInferRequest(
       //changed by zhaohb for support ov 2022.1
-      const std::string& device, ov::InferRequest* infer_request);
+      const std::string& device, InferRequestsQueue** infer_request);
       //const std::string& device, InferenceEngine::InferRequest* infer_request);
 
   //delete by zhaohb, can find api in 2022.1
@@ -488,13 +489,17 @@ ModelState::LoadNetwork(
 
 TRITONSERVER_Error*
 ModelState::CreateInferRequest(
-    const std::string& device, ov::InferRequest* infer_request)
+    const std::string& device, InferRequestsQueue** infer_request)
     //const std::string& device, InferenceEngine::InferRequest* infer_request)
 {
-  RETURN_IF_OPENVINO_ASSIGN_ERROR(
-      *infer_request, executable_network_[device].create_infer_request(),
+  //RETURN_IF_OPENVINO_ASSIGN_ERROR(
+  //    *infer_request, executable_network_[device].create_infer_request(),
       //*infer_request, executable_network_[device].CreateInferRequest(),
-      "creating infer request object");
+  //    "creating infer request object");
+  //InferRequestsQueue* infer_request_tmp  =  new InferRequestsQueue(executable_network_[device], 9);
+  *infer_request  =  new InferRequestsQueue(executable_network_[device], 9);
+  //infer_request = infer_request_tmp;
+  //RETURN_IF_OPENVINO_ASSIGN_ERROR(infer_request, infer_request_tmp, "creating infer request object");
 
   return nullptr;
 }
@@ -749,7 +754,8 @@ class ModelInstanceState : public BackendModelInstance {
   std::string device_;
 
   //changed by zhaohb
-  ov::InferRequest infer_request_;
+  //ov::InferRequest infer_request_;
+  InferRequestsQueue* infer_request_;
   //InferenceEngine::InferRequest infer_request_;
 
   std::map<std::string, InferenceEngine::Blob::Ptr> input_blobs_;
