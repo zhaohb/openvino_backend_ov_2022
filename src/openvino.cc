@@ -497,7 +497,7 @@ ModelState::CreateInferRequest(
       //*infer_request, executable_network_[device].CreateInferRequest(),
   //    "creating infer request object");
   //InferRequestsQueue* infer_request_tmp  =  new InferRequestsQueue(executable_network_[device], 9);
-  *infer_request  =  new InferRequestsQueue(executable_network_[device], 9);
+  *infer_request  =  new InferRequestsQueue(executable_network_[device], 8);
   //infer_request = infer_request_tmp;
   //RETURN_IF_OPENVINO_ASSIGN_ERROR(infer_request, infer_request_tmp, "creating infer request object");
 
@@ -733,7 +733,7 @@ class ModelInstanceState : public BackendModelInstance {
   TRITONSERVER_Error* SetBatch(const int batch_size);
   TRITONSERVER_Error* Infer(
       std::vector<TRITONBACKEND_Response*>* responses,
-      const uint32_t response_count);
+      const uint32_t response_count, ov::InferRequest infer_request);
   TRITONSERVER_Error* SetInputTensors(
       size_t total_batch_size, TRITONBACKEND_Request** requests,
       const uint32_t request_count,
@@ -1092,10 +1092,12 @@ ModelInstanceState::SetBatch(const int batch_size)
 TRITONSERVER_Error*
 ModelInstanceState::Infer(
     std::vector<TRITONBACKEND_Response*>* responses,
-    const uint32_t response_count)
+    const uint32_t response_count, ov::InferRequest infer_request)
+    //const uint32_t response_count)
 {
   //changed by zhaohb
-  RETURN_IF_OPENVINO_ERROR(infer_request_.infer(), "running inference");
+  RETURN_IF_OPENVINO_ERROR(infer_request.start_async(), "running inference");
+  //RETURN_IF_OPENVINO_ERROR(infer_request_.infer(), "running inference");
   //RETURN_IF_OPENVINO_ERROR(infer_request_.Infer(), "running inference");
 
   return nullptr;
@@ -1250,7 +1252,7 @@ ModelInstanceState::SetInputTensors(
       //input_shape_tmp.push_back(3096);
       for(unsigned long i = 0; i < batchn_shape.size(); i++)
       {
-         input_shape_tmp.push_back(batchn_shape[i]);
+          input_shape_tmp.push_back(batchn_shape[i]);
       }
       //auto input_shape_tmp = ov::Shape(batchn_shape);
       ov::Tensor input_tensor;
@@ -1262,6 +1264,7 @@ ModelInstanceState::SetInputTensors(
 
       //infer_request_.set_tensor(input_tensor);
       auto requestTensor = infer_request_.get_tensor(input_name);
+      
 #if 0
       printf("input_name: %s, input get_byte_size: %zu, output get_byte_size: %zu\n", input_name, input_tensor.get_byte_size(), requestTensor.get_byte_size());
 #endif
