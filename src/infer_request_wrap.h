@@ -34,6 +34,7 @@ public:
           _id(id),
           _callbackQueue(callbackQueue) {
         _request.set_callback([&](const std::exception_ptr& ptr) {
+        _callbackQueue(_id);
         });
     }
 
@@ -67,10 +68,10 @@ public:
         _request.set_tensor(name, data);
     }
 
-
-private:
     ov::InferRequest _request;
     size_t _id;
+
+private:
     QueueCallbackFunction _callbackQueue;
 };
 
@@ -101,6 +102,7 @@ public:
     void put_idle_request(size_t id) {
         std::unique_lock<std::mutex> lock(_mutex);
         _idleIds.push(id);
+        //printf("put_idle_request: %ld\n", id);
         _cv.notify_one();
     }
 
@@ -111,12 +113,15 @@ public:
         });
         auto request = requests.at(_idleIds.front());
         _idleIds.pop();
+        //printf("get_idle_request: %ld\n", _idleIds.front());
         return request;
     }
 
     void wait_all() {
         std::unique_lock<std::mutex> lock(_mutex);
         _cv.wait(lock, [this] {
+            //printf("requests.size(): %ld\n", requests.size());
+            //printf("_idleIds.size(): %ld\n", _idleIds.size());
             return _idleIds.size() == requests.size();
         });
     }
