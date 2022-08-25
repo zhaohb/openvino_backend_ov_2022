@@ -1039,7 +1039,7 @@ ModelInstanceState::ProcessRequests(
   }
 
   infer_request_->wait_all();
-
+  //printf("after wait_all!!!\n");
   uint64_t compute_end_ns = 0;
   SET_TIMESTAMP(compute_end_ns);
 
@@ -1192,6 +1192,8 @@ ModelInstanceState::SetInputTensors(
       // Set the input blob to the buffer without allocating any new memory
       //auto allocator = std::make_shared<SharedTensorAllocator>(batchn_byte_size);
       std::vector<std::shared_ptr<SharedTensorAllocator>> m_allocator;
+      int64_t input_size = GetElementCount(batchn_shape);
+      //printf("input_size: %ld, input_name: %s\n", input_size, input_name);
       for (int n = 0; n < 8; n++)
       {
               auto allocator = std::make_shared<SharedTensorAllocator>(batchn_byte_size/8);
@@ -1199,7 +1201,6 @@ ModelInstanceState::SetInputTensors(
 		      auto data = reinterpret_cast<float*>(allocator->get_buffer());
 		      const void* input_buffer_ptr = (const void *)(input_buffer);
 		      auto input_data = reinterpret_cast<float*>(const_cast<void*>(input_buffer_ptr));
-		      int64_t input_size = GetElementCount(batchn_shape);
                       memcpy(data, input_data+n*(input_size/8), batchn_byte_size/8);
               #if 0        
 		      for(int i =0; i < input_size/8/3089; i++)
@@ -1212,7 +1213,6 @@ ModelInstanceState::SetInputTensors(
 		      auto data = reinterpret_cast<int32_t*>(allocator->get_buffer());
 		      const void* input_buffer_ptr = (const void *)(input_buffer);
 		      auto input_data = reinterpret_cast<int32_t*>(const_cast<void*>(input_buffer_ptr));
-		      int64_t input_size = GetElementCount(batchn_shape);
                       memcpy(data, input_data+n*(input_size/8), batchn_byte_size/8);
               #if 0
 		      for(int i =0; i < input_size/8/3089; i++)
@@ -1234,9 +1234,13 @@ ModelInstanceState::SetInputTensors(
               input_shape_tmp.push_back(batchn_shape[i]);
       }
       ov::Tensor input_tensor;
+      InferReqWrap::Ptr infer_request_tmp;
       for(int n = 0; n < 8; n++)
       {
-              InferReqWrap::Ptr infer_request_tmp = infer_request_->get_idle_request();
+              if (input_idx == 0)
+                  infer_request_tmp = infer_request_->get_idle_request();
+              else
+                  infer_request_tmp = infer_request_->requests.at(n);
               size_t id = infer_request_tmp->_id;
               //printf("request id: %ld\n", id);
 	      if (input_datatype == TRITONSERVER_TYPE_INT32)
@@ -1285,7 +1289,8 @@ ModelInstanceState::ReadOutputTensors(
     auto output_shape =
         ConvertToSignedShape(output_blob.get_shape());
 #endif
-    auto allocator = std::make_shared<SharedTensorAllocator>(2048*1*4);
+    auto allocator = std::make_shared<SharedTensorAllocator>(256*3089*4);
+    //auto allocator = std::make_shared<SharedTensorAllocator>(2048*1*4);
     auto data = reinterpret_cast<float*>(allocator->get_buffer());
     for (int n = 0; n < 8; n++)
     {
@@ -1297,7 +1302,8 @@ ModelInstanceState::ReadOutputTensors(
         printf("name: %s, %d output data[255]: %f\n", name.c_str(), n, output_data[255]);
 #endif
 
-        memcpy(data+n*256, output_data, 256*4);
+        memcpy(data+n*32*3089, output_data, 32*3089*4);
+        //memcpy(data+n*256, output_data, 256*4);
     }
 
 #if 0
@@ -1308,7 +1314,8 @@ ModelInstanceState::ReadOutputTensors(
 #endif
 
 #if 1
-    std::vector<long int32_t> output_shape = {2048, 1};
+    std::vector<long int32_t> output_shape = {256, 3089};
+    //std::vector<long int32_t> output_shape = {2048, 1};
     responder.ProcessTensor(
         name,
         TRITONSERVER_TYPE_FP32,
