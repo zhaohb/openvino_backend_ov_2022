@@ -1249,7 +1249,7 @@ ModelInstanceState::SetInputTensors(
 		      input_tensor = ov::Tensor(ov::element::f32, input_shape_tmp, ov::Allocator(m_allocator.at(id)));
 
 	      auto requestTensor = infer_request_tmp->_request.get_tensor(input_name);
-	      requestTensor.set_shape(input_shape_tmp);
+	      //requestTensor.set_shape(input_shape_tmp);
 
 #if 0
 	      printf("input_name: %s, input get_byte_size: %zu, output get_byte_size: %zu\n", input_name, input_tensor.get_byte_size(), requestTensor.get_byte_size());
@@ -1260,6 +1260,7 @@ ModelInstanceState::SetInputTensors(
 	      }
 
 	      memcpy(requestTensor.data(), input_tensor.data(), input_tensor.get_byte_size());
+              //infer_request_tmp->set_tensor(input_name, input_tensor);
     }
   }
   return nullptr;
@@ -1276,21 +1277,31 @@ ModelInstanceState::ReadOutputTensors(
       model_state_->MaxBatchSize() > 0, model_state_->EnablePinnedInput(),
       CudaStream());
 
+
+   std::map<std::string, std::vector<long int64_t>> output_name_shape;
+   triton::common::TritonJson::Value ios;
+   RETURN_IF_ERROR(model_state_->ModelConfig().MemberAsArray("output", &ios));
+   for (size_t i = 0; i < ios.ArraySize(); i++) {
+	   triton::common::TritonJson::Value io;
+	   RETURN_IF_ERROR(ios.IndexAsObject(i, &io));
+	   std::string io_name;
+	   RETURN_IF_ERROR(io.MemberAsString("name", &io_name));
+	   std::string io_dtype;
+	   RETURN_IF_ERROR(io.MemberAsString("data_type", &io_dtype));
+
+	   std::vector<int64_t> dims;
+           RETURN_IF_ERROR(ParseShape(io, "dims", &dims));
+           output_name_shape[io_name] = dims;
+   }
+
+
   bool cuda_copy = false;
   for (size_t idx = 0; idx < output_names.size(); idx++) {
     std::string name = output_names[idx];
 
-    ov::Tensor output_blob;
-#if 0
-    RETURN_IF_OPENVINO_ASSIGN_ERROR(
-        //output_blob, infer_request_.GetBlob(name),
-        output_blob, infer_request_.get_tensor(name),
-        "reading output tensor blob ");
-    auto output_shape =
-        ConvertToSignedShape(output_blob.get_shape());
-#endif
-    auto allocator = std::make_shared<SharedTensorAllocator>(256*3089*4);
-    //auto allocator = std::make_shared<SharedTensorAllocator>(2048*1*4);
+    auto output_element = GetElementCount(output_name_shape[name]);
+    auto output_bytes = output_element*4; // data type is fp32
+    auto allocator = std::make_shared<SharedTensorAllocator>(output_bytes);
     auto data = reinterpret_cast<float*>(allocator->get_buffer());
     for (int n = 0; n < 8; n++)
     {
@@ -1302,8 +1313,7 @@ ModelInstanceState::ReadOutputTensors(
         printf("name: %s, %d output data[255]: %f\n", name.c_str(), n, output_data[255]);
 #endif
 
-        memcpy(data+n*32*3089, output_data, 32*3089*4);
-        //memcpy(data+n*256, output_data, 256*4);
+        memcpy(data+n*output_element/8, output_data, output_element/8*4); 
     }
 
 #if 0
@@ -1313,14 +1323,10 @@ ModelInstanceState::ReadOutputTensors(
     }
 #endif
 
-#if 1
-    std::vector<long int32_t> output_shape = {256, 3089};
-    //std::vector<long int32_t> output_shape = {2048, 1};
     responder.ProcessTensor(
         name,
         TRITONSERVER_TYPE_FP32,
-        output_shape, reinterpret_cast<const char*>(data), TRITONSERVER_MEMORY_CPU, 0);
-#endif  
+        output_name_shape[name], reinterpret_cast<const char*>(data), TRITONSERVER_MEMORY_CPU, 0);
     }
 
   // Finalize and wait for any pending buffer copies.
