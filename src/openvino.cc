@@ -114,6 +114,8 @@ class ModelState : public BackendModel {
       const std::string& device, InferRequestsQueue** infer_request);
       //const std::string& device, InferenceEngine::InferRequest* infer_request);
 
+  TRITONSERVER_Error* SetInferRequestNum(int32_t * infer_request_num_);
+
   //delete by zhaohb, can find api in 2022.1
   //TRITONSERVER_Error* GetInputsInfo(
   //    InferenceEngine::InputsDataMap* input_tensor_infos);
@@ -130,6 +132,7 @@ class ModelState : public BackendModel {
 
   bool SkipDynamicBatchSize() { return skip_dynamic_batchsize_; }
   bool EnableBatchPadding() { return enable_padding_; }
+  int32_t infer_request_num;
 
  private:
   ModelState(TRITONBACKEND_Model* triton_model);
@@ -312,7 +315,12 @@ TRITONSERVER_Error*
 ModelState::LoadCpuExtensions(triton::common::TritonJson::Value& params)
 {
   std::string cpu_ext_path;
+  std::string infer_request_num_tmp;
   ReadParameter(params, "CPU_EXTENSION_PATH", &(cpu_ext_path));
+  ReadParameter(params, "CPU_REQUEST_NUM", &(infer_request_num_tmp));
+  infer_request_num = atoi(infer_request_num_tmp.c_str());
+  //printf("infer_request_num: %d\n", infer_request_num);
+  
   if (!cpu_ext_path.empty()) {
     // CPU (MKLDNN) extensions is loaded as a shared library and passed as a
     // pointer to base extension
@@ -503,10 +511,17 @@ ModelState::CreateInferRequest(
   //    "creating infer request object");
   //InferRequestsQueue* infer_request_tmp  =  new InferRequestsQueue(executable_network_[device], 9);
   
-  *infer_request  =  new InferRequestsQueue(executable_network_[device], 8);
+  *infer_request  =  new InferRequestsQueue(executable_network_[device], infer_request_num);
   //infer_request = infer_request_tmp;
   //RETURN_IF_OPENVINO_ASSIGN_ERROR(infer_request, infer_request_tmp, "creating infer request object");
 
+  return nullptr;
+}
+
+TRITONSERVER_Error*
+ModelState::SetInferRequestNum(int32_t * infer_request_num_)
+{
+  *infer_request_num_ = infer_request_num;
   return nullptr;
 }
 
@@ -731,6 +746,7 @@ class ModelInstanceState : public BackendModelInstance {
   // Execute...
   void ProcessRequests(
       TRITONBACKEND_Request** requests, const uint32_t request_count);
+  int32_t infer_request_num_;
 
  private:
   ModelInstanceState(
@@ -839,6 +855,8 @@ ModelInstanceState::ModelInstanceState(
 
   THROW_IF_BACKEND_INSTANCE_ERROR(
       model_state_->CreateInferRequest(device_, &infer_request_));
+
+  THROW_IF_BACKEND_INSTANCE_ERROR(model_state_->SetInferRequestNum(&infer_request_num_));
 }
 
 ModelInstanceState::~ModelInstanceState()
@@ -1029,7 +1047,7 @@ ModelInstanceState::ProcessRequests(
   SET_TIMESTAMP(compute_start_ns);
 
   // Run...
-  for(int n = 0; n < 8; n++)
+  for(int n = 0; n < infer_request_num_; n++)
   {
 	  if (!all_response_failed) {
 		  RESPOND_ALL_AND_SET_TRUE_IF_ERROR(
@@ -1194,14 +1212,15 @@ ModelInstanceState::SetInputTensors(
       std::vector<std::shared_ptr<SharedTensorAllocator>> m_allocator;
       int64_t input_size = GetElementCount(batchn_shape);
       //printf("input_size: %ld, input_name: %s\n", input_size, input_name);
-      for (int n = 0; n < 8; n++)
+      //printf("infer_request_num_: %d\n", infer_request_num_);
+      for (int n = 0; n < infer_request_num_; n++)
       {
-              auto allocator = std::make_shared<SharedTensorAllocator>(batchn_byte_size/8);
+              auto allocator = std::make_shared<SharedTensorAllocator>(batchn_byte_size/infer_request_num_);
 	      if (input_datatype == TRITONSERVER_TYPE_FP32){
 		      auto data = reinterpret_cast<float*>(allocator->get_buffer());
 		      const void* input_buffer_ptr = (const void *)(input_buffer);
 		      auto input_data = reinterpret_cast<float*>(const_cast<void*>(input_buffer_ptr));
-                      memcpy(data, input_data+n*(input_size/8), batchn_byte_size/8);
+                      memcpy(data, input_data+n*(input_size/infer_request_num_), batchn_byte_size/infer_request_num_);
               #if 0        
 		      for(int i =0; i < input_size/8/3089; i++)
 		      {
@@ -1213,7 +1232,7 @@ ModelInstanceState::SetInputTensors(
 		      auto data = reinterpret_cast<int32_t*>(allocator->get_buffer());
 		      const void* input_buffer_ptr = (const void *)(input_buffer);
 		      auto input_data = reinterpret_cast<int32_t*>(const_cast<void*>(input_buffer_ptr));
-                      memcpy(data, input_data+n*(input_size/8), batchn_byte_size/8);
+                      memcpy(data, input_data+n*(input_size/infer_request_num_), batchn_byte_size/infer_request_num_);
               #if 0
 		      for(int i =0; i < input_size/8/3089; i++)
 		      {
@@ -1229,13 +1248,13 @@ ModelInstanceState::SetInputTensors(
       for(unsigned long i = 0; i < batchn_shape.size(); i++)
       {
           if(i == 0)
-              input_shape_tmp.push_back(batchn_shape[i]/8);
+              input_shape_tmp.push_back(batchn_shape[i]/infer_request_num_);
           else
               input_shape_tmp.push_back(batchn_shape[i]);
       }
       ov::Tensor input_tensor;
       InferReqWrap::Ptr infer_request_tmp;
-      for(int n = 0; n < 8; n++)
+      for(int n = 0; n < infer_request_num_; n++)
       {
               if (input_idx == 0)
                   infer_request_tmp = infer_request_->get_idle_request();
@@ -1303,7 +1322,7 @@ ModelInstanceState::ReadOutputTensors(
     auto output_bytes = output_element*4; // data type is fp32
     auto allocator = std::make_shared<SharedTensorAllocator>(output_bytes);
     auto data = reinterpret_cast<float*>(allocator->get_buffer());
-    for (int n = 0; n < 8; n++)
+    for (int n = 0; n < infer_request_num_; n++)
     {
         auto output_tmp = infer_request_->requests.at(n)->_request.get_tensor(name);
         auto output_shape = output_tmp.get_shape();
@@ -1313,7 +1332,7 @@ ModelInstanceState::ReadOutputTensors(
         printf("name: %s, %d output data[255]: %f\n", name.c_str(), n, output_data[255]);
 #endif
 
-        memcpy(data+n*output_element/8, output_data, output_element/8*4); 
+        memcpy(data+n*output_element/infer_request_num_, output_data, output_element/infer_request_num_*4); 
     }
 
 #if 0
