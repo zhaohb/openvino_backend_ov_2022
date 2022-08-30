@@ -1208,42 +1208,10 @@ ModelInstanceState::SetInputTensors(
       }
 
       // Set the input blob to the buffer without allocating any new memory
-      //auto allocator = std::make_shared<SharedTensorAllocator>(batchn_byte_size);
-      std::vector<std::shared_ptr<SharedTensorAllocator>> m_allocator;
       int64_t input_size = GetElementCount(batchn_shape);
       //printf("input_size: %ld, input_name: %s\n", input_size, input_name);
       //printf("infer_request_num_: %d\n", infer_request_num_);
-      for (int n = 0; n < infer_request_num_; n++)
-      {
-              auto allocator = std::make_shared<SharedTensorAllocator>(batchn_byte_size/infer_request_num_);
-	      if (input_datatype == TRITONSERVER_TYPE_FP32){
-		      auto data = reinterpret_cast<float*>(allocator->get_buffer());
-		      const void* input_buffer_ptr = (const void *)(input_buffer);
-		      auto input_data = reinterpret_cast<float*>(const_cast<void*>(input_buffer_ptr));
-                      memcpy(data, input_data+n*(input_size/infer_request_num_), batchn_byte_size/infer_request_num_);
-              #if 0        
-		      for(int i =0; i < input_size/8/3089; i++)
-		      {
-		              printf("n: %d, data: %f\n",n, data[i]);
-		      }
-              #endif
-	      }
-	      if (input_datatype == TRITONSERVER_TYPE_INT32){
-		      auto data = reinterpret_cast<int32_t*>(allocator->get_buffer());
-		      const void* input_buffer_ptr = (const void *)(input_buffer);
-		      auto input_data = reinterpret_cast<int32_t*>(const_cast<void*>(input_buffer_ptr));
-                      memcpy(data, input_data+n*(input_size/infer_request_num_), batchn_byte_size/infer_request_num_);
-              #if 0
-		      for(int i =0; i < input_size/8/3089; i++)
-		      {
-		              printf("n: %d, data: %d\n",n, data[i]);
-		      }
-              #endif
-	      }
-              m_allocator.push_back(allocator);
-      }
-      //(allocator->get_buffer()) = &data;
-      //auto reinterpret_cast<float*>(allocator->get_buffer()) = reinterpret_cast<float*>((input_buffer));
+
       std::vector<unsigned long, std::allocator<unsigned long>> input_shape_tmp;
       for(unsigned long i = 0; i < batchn_shape.size(); i++)
       {
@@ -1252,20 +1220,28 @@ ModelInstanceState::SetInputTensors(
           else
               input_shape_tmp.push_back(batchn_shape[i]);
       }
+
       ov::Tensor input_tensor;
       InferReqWrap::Ptr infer_request_tmp;
+
       for(int n = 0; n < infer_request_num_; n++)
       {
               if (input_idx == 0)
                   infer_request_tmp = infer_request_->get_idle_request();
               else
                   infer_request_tmp = infer_request_->requests.at(n);
-              size_t id = infer_request_tmp->_id;
+              //size_t id = infer_request_tmp->_id;
               //printf("request id: %ld\n", id);
-	      if (input_datatype == TRITONSERVER_TYPE_INT32)
-		      input_tensor = ov::Tensor(ov::element::i32, input_shape_tmp, ov::Allocator(m_allocator.at(id)));
+
+              const void* input_buffer_ptr = (const void *)(input_buffer); 
+              auto input_data =  reinterpret_cast<float*>(const_cast<void*>(input_buffer_ptr));   
+              
 	      if (input_datatype == TRITONSERVER_TYPE_FP32)
-		      input_tensor = ov::Tensor(ov::element::f32, input_shape_tmp, ov::Allocator(m_allocator.at(id)));
+	          input_tensor = ov::Tensor(ov::element::f32, input_shape_tmp,    
+			                      input_data+n*(input_size/infer_request_num_));     
+	      if (input_datatype == TRITONSERVER_TYPE_INT32)
+	          input_tensor = ov::Tensor(ov::element::i32, input_shape_tmp,    
+			                      input_data+n*(input_size/infer_request_num_));     
 
 	      auto requestTensor = infer_request_tmp->_request.get_tensor(input_name);
 	      //requestTensor.set_shape(input_shape_tmp);
@@ -1278,8 +1254,8 @@ ModelInstanceState::SetInputTensors(
 				      "Source and destination tensors shapes and byte sizes are expected to be equal for data copying.");
 	      }
 
-	      memcpy(requestTensor.data(), input_tensor.data(), input_tensor.get_byte_size());
-              //infer_request_tmp->set_tensor(input_name, input_tensor);
+	      //memcpy(requestTensor.data(), input_tensor.data(), input_tensor.get_byte_size());
+              infer_request_tmp->set_tensor(input_name, input_tensor);
     }
   }
   return nullptr;
