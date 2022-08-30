@@ -1224,6 +1224,8 @@ ModelInstanceState::SetInputTensors(
       ov::Tensor input_tensor;
       InferReqWrap::Ptr infer_request_tmp;
 
+      const void* input_buffer_ptr = (const void *)(input_buffer); 
+      auto input_data =  reinterpret_cast<float*>(const_cast<void*>(input_buffer_ptr));   
       for(int n = 0; n < infer_request_num_; n++)
       {
               if (input_idx == 0)
@@ -1233,8 +1235,6 @@ ModelInstanceState::SetInputTensors(
               //size_t id = infer_request_tmp->_id;
               //printf("request id: %ld\n", id);
 
-              const void* input_buffer_ptr = (const void *)(input_buffer); 
-              auto input_data =  reinterpret_cast<float*>(const_cast<void*>(input_buffer_ptr));   
               
 	      if (input_datatype == TRITONSERVER_TYPE_FP32)
 	          input_tensor = ov::Tensor(ov::element::f32, input_shape_tmp,    
