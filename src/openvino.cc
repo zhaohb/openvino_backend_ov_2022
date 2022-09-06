@@ -115,6 +115,7 @@ class ModelState : public BackendModel {
       //const std::string& device, InferenceEngine::InferRequest* infer_request);
 
   TRITONSERVER_Error* SetInferRequestNum(int32_t * infer_request_num_);
+  TRITONSERVER_Error* SetNameNodeMap(std::map<std::string, ov::Output<const ov::Node> > * name_node_map_);
 
   //delete by zhaohb, can find api in 2022.1
   //TRITONSERVER_Error* GetInputsInfo(
@@ -133,6 +134,7 @@ class ModelState : public BackendModel {
   bool SkipDynamicBatchSize() { return skip_dynamic_batchsize_; }
   bool EnableBatchPadding() { return enable_padding_; }
   int32_t infer_request_num;
+  std::map<std::string, ov::Output<const ov::Node> > name_node_map;
 
  private:
   ModelState(TRITONBACKEND_Model* triton_model);
@@ -497,6 +499,12 @@ ModelState::LoadNetwork(
       core.compile_model(network_, device),
       "loading network");
 
+  const std::vector<ov::Output<const ov::Node>> inputs = executable_network_[device].inputs();
+  for (const ov::Output<const ov::Node> input : inputs) {
+	  const std::string name = input.get_names().empty() ? "NONE" : input.get_any_name();
+          name_node_map[name] = input;
+          //printf("input_name: %s, idx: %ld\n", name.c_str(), input.get_index());
+  }
   return nullptr;  // success
 }
 
@@ -522,6 +530,11 @@ TRITONSERVER_Error*
 ModelState::SetInferRequestNum(int32_t * infer_request_num_)
 {
   *infer_request_num_ = infer_request_num;
+  return nullptr;
+}
+TRITONSERVER_Error* ModelState::SetNameNodeMap(std::map<std::string, ov::Output<const ov::Node> > * name_node_map_)
+{
+  *name_node_map_ = name_node_map;
   return nullptr;
 }
 
@@ -747,6 +760,8 @@ class ModelInstanceState : public BackendModelInstance {
   void ProcessRequests(
       TRITONBACKEND_Request** requests, const uint32_t request_count);
   int32_t infer_request_num_;
+  std::map<std::string, ov::Output<const ov::Node> > name_node_map_;
+  
 
  private:
   ModelInstanceState(
@@ -857,6 +872,7 @@ ModelInstanceState::ModelInstanceState(
       model_state_->CreateInferRequest(device_, &infer_request_));
 
   THROW_IF_BACKEND_INSTANCE_ERROR(model_state_->SetInferRequestNum(&infer_request_num_));
+  THROW_IF_BACKEND_INSTANCE_ERROR(model_state_->SetNameNodeMap(&name_node_map_));
 }
 
 ModelInstanceState::~ModelInstanceState()
@@ -1100,6 +1116,8 @@ ModelInstanceState::ProcessRequests(
         "failed releasing request");
   }
 
+  //printf("conpute input time: %ld, infer time: %ld, compute output time: %ld\n", (compute_start_ns-exec_start_ns), (compute_end_ns-compute_start_ns), (exec_end_ns-compute_end_ns));
+
   if (!all_response_failed) {
     // Report the entire batch statistics.
     LOG_IF_ERROR(
@@ -1158,6 +1176,7 @@ ModelInstanceState::SetInputTensors(
       requests, request_count, responses, model_state_->TritonMemoryManager(),
       model_state_->EnablePinnedInput(), CudaStream(), nullptr, nullptr, 0,
       HostPolicyName().c_str());
+
   for (uint32_t input_idx = 0; input_idx < input_count; input_idx++) {
     TRITONBACKEND_Input* input;
     RETURN_IF_ERROR(
@@ -1226,36 +1245,40 @@ ModelInstanceState::SetInputTensors(
 
       const void* input_buffer_ptr = (const void *)(input_buffer); 
       auto input_data =  reinterpret_cast<float*>(const_cast<void*>(input_buffer_ptr));   
+      auto size_of_piece = input_size/infer_request_num_;
       for(int n = 0; n < infer_request_num_; n++)
       {
-              if (input_idx == 0)
-                  infer_request_tmp = infer_request_->get_idle_request();
-              else
-                  infer_request_tmp = infer_request_->requests.at(n);
-              //size_t id = infer_request_tmp->_id;
-              //printf("request id: %ld\n", id);
+	      if (input_idx == 0)
+		      infer_request_tmp = infer_request_->get_idle_request();
+	      else
+		      infer_request_tmp = infer_request_->requests.at(n);
+              //printf("size_of_piece: %ld\n", size_of_piece);
+	      //size_t id = infer_request_tmp->_id;
+	      //printf("request id: %ld\n", id);
 
-              
+
+	      //uint64_t ov_init_start_ns = 0;
+	      //SET_TIMESTAMP(ov_init_start_ns);
 	      if (input_datatype == TRITONSERVER_TYPE_FP32)
-	          input_tensor = ov::Tensor(ov::element::f32, input_shape_tmp,    
-			                      input_data+n*(input_size/infer_request_num_));     
+		      input_tensor = ov::Tensor(ov::element::f32, input_shape_tmp,    
+				      input_data+n*(size_of_piece));     
 	      if (input_datatype == TRITONSERVER_TYPE_INT32)
-	          input_tensor = ov::Tensor(ov::element::i32, input_shape_tmp,    
-			                      input_data+n*(input_size/infer_request_num_));     
+		      input_tensor = ov::Tensor(ov::element::i32, input_shape_tmp,    
+				      input_data+n*(size_of_piece));     
 
-	      auto requestTensor = infer_request_tmp->_request.get_tensor(input_name);
+	      auto requestTensor = infer_request_tmp->_request.get_tensor(name_node_map_[input_name]);
 	      //requestTensor.set_shape(input_shape_tmp);
 
 #if 0
 	      printf("input_name: %s, input get_byte_size: %zu, output get_byte_size: %zu\n", input_name, input_tensor.get_byte_size(), requestTensor.get_byte_size());
 #endif
 	      if (input_tensor.get_shape() != requestTensor.get_shape() || input_tensor.get_byte_size() != requestTensor.get_byte_size()) {
-		      throw std::runtime_error(
-				      "Source and destination tensors shapes and byte sizes are expected to be equal for data copying.");
-	      }
+	      	      throw std::runtime_error(
+	      				      "Source and destination tensors shapes and byte sizes are expected to be equal for data copying.");
+	      	      }
 
-	      //memcpy(requestTensor.data(), input_tensor.data(), input_tensor.get_byte_size());
-              infer_request_tmp->set_tensor(input_name, input_tensor);
+	      memcpy(requestTensor.data(), input_tensor.data(), input_tensor.get_byte_size());
+	      //infer_request_tmp->_request.set_tensor(name_node_map_[input_name], input_tensor);
     }
   }
   return nullptr;
