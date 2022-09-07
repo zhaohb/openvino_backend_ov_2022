@@ -166,7 +166,6 @@ RUN /bin/bash -c 'cmake \
         -DCMAKE_INSTALL_PREFIX=/workspace/install \
         -DENABLE_VPU=OFF \
         -DENABLE_CLDNN=OFF \
-        -DTHREADING=OMP \
         -DENABLE_GNA=OFF \
         -DENABLE_DLIA=OFF \
         -DENABLE_TESTS=OFF \
@@ -188,7 +187,7 @@ RUN mkdir -p include && \
     cp -r /workspace/install/runtime/include/openvino include/.
 RUN mkdir -p lib && \
     cp /workspace/install/runtime/lib/intel64/*.so lib/. && \
-    cp /workspace/install/runtime/3rdparty/omp/lib/libiomp5.so lib/.
+    cp /workspace/install/runtime/3rdparty/tbb/lib/* lib/.
 '''
 
     df += '''
@@ -242,7 +241,6 @@ RUN /bin/bash -c 'cmake \
         -DCMAKE_INSTALL_PREFIX=/workspace/install \
         -DENABLE_VPU=OFF \
         -DENABLE_CLDNN=OFF \
-        -DTHREADING=OMP \
         -DENABLE_GNA=OFF \
         -DENABLE_DLIA=OFF \
         -DENABLE_TESTS=OFF \
@@ -270,7 +268,7 @@ RUN mkdir -p lib && \
 
     if (FLAGS.openvino_version.startswith("2021.2")):
         df += '''cp /workspace/install/lib/libngraph.so lib/. && \
-    cp /workspace/openvino/inference-engine/temp/omp/lib/libiomp5.so lib/.
+    cp /workspace/openvino/inference-engine/temp/tbb/lib/* lib/.
 '''
     else:
         df += '''cp /workspace/install/deployment_tools/ngraph/lib/libngraph.so lib/. && \
