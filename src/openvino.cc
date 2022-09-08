@@ -1022,15 +1022,6 @@ ModelInstanceState::ProcessRequests(
     }
   }
 
-  std::vector<const char*> input_names;
-  if (!all_response_failed) {
-    RESPOND_ALL_AND_SET_TRUE_IF_ERROR(
-        responses, request_count, all_response_failed,
-        SetInputTensors(
-            total_batch_size, requests, request_count, &responses,
-            &input_names));
-  }
-
   // Request to retrieve all model outputs.
   std::vector<const char*> output_names;
   if (!all_response_failed) {
@@ -1062,18 +1053,15 @@ ModelInstanceState::ProcessRequests(
   uint64_t compute_start_ns = 0;
   SET_TIMESTAMP(compute_start_ns);
 
-  // Run...
-  for(int n = 0; n < infer_request_num_; n++)
-  {
-	  if (!all_response_failed) {
-		  RESPOND_ALL_AND_SET_TRUE_IF_ERROR(
-				  responses, request_count, all_response_failed,
-				  Infer(&responses, request_count, infer_request_->requests.at(n)->_request));
-	  }
+  std::vector<const char*> input_names;
+  if (!all_response_failed) {
+    RESPOND_ALL_AND_SET_TRUE_IF_ERROR(
+        responses, request_count, all_response_failed,
+        SetInputTensors(
+            total_batch_size, requests, request_count, &responses,
+            &input_names));
   }
 
-  infer_request_->wait_all();
-  //printf("after wait_all!!!\n");
   uint64_t compute_end_ns = 0;
   SET_TIMESTAMP(compute_end_ns);
 
@@ -1177,110 +1165,122 @@ ModelInstanceState::SetInputTensors(
       model_state_->EnablePinnedInput(), CudaStream(), nullptr, nullptr, 0,
       HostPolicyName().c_str());
 
-  for (uint32_t input_idx = 0; input_idx < input_count; input_idx++) {
-    TRITONBACKEND_Input* input;
-    RETURN_IF_ERROR(
-        TRITONBACKEND_RequestInputByIndex(requests[0], input_idx, &input));
+  for(int n = 0; n < infer_request_num_; n++)
+  {
+	  //uint64_t one_request_prepare_start_ns = 0;
+	  //SET_TIMESTAMP(one_request_prepare_start_ns);
 
-    const char* input_name;
-    TRITONSERVER_DataType input_datatype;
-    const int64_t* input_shape;
-    uint32_t input_dims_count;
-    RETURN_IF_ERROR(TRITONBACKEND_InputProperties(
-        input, &input_name, &input_datatype, &input_shape, &input_dims_count,
-        nullptr, nullptr));
+	  InferReqWrap::Ptr infer_request_tmp;
+	  infer_request_tmp = infer_request_->get_idle_request();
+	  //size_t id = infer_request_tmp->_id;
+	  //printf("request id: %ld\n", id);
 
-    input_names->emplace_back(input_name);
+	  for (uint32_t input_idx = 0; input_idx < input_count; input_idx++) {
+		  TRITONBACKEND_Input* input;
+		  RETURN_IF_ERROR(
+				  TRITONBACKEND_RequestInputByIndex(requests[0], input_idx, &input));
 
-    // The shape for the entire input patch, [total_batch_size, ...]
-    std::vector<int64_t> batchn_shape(
-        input_shape, input_shape + input_dims_count);
-    if (max_batch_size != 0) {
-      batchn_shape[0] = total_batch_size;
-    }
+		  const char* input_name;
+		  TRITONSERVER_DataType input_datatype;
+		  const int64_t* input_shape;
+		  uint32_t input_dims_count;
+		  RETURN_IF_ERROR(TRITONBACKEND_InputProperties(
+					  input, &input_name, &input_datatype, &input_shape, &input_dims_count,
+					  nullptr, nullptr));
 
-    const int64_t batchn_byte_size = GetByteSize(input_datatype, batchn_shape);
+		  input_names->emplace_back(input_name);
 
-      const char* input_buffer;
-      //const char* input_buffer;
-      size_t buffer_byte_size;
-      TRITONSERVER_MemoryType memory_type;
-      int64_t memory_type_id;
-      RETURN_IF_ERROR(collector.ProcessTensor(
-          input_name, nullptr, 0,
-          {{TRITONSERVER_MEMORY_CPU_PINNED, 0}, {TRITONSERVER_MEMORY_CPU, 0}},
-          &input_buffer, &buffer_byte_size, &memory_type, &memory_type_id));
-      if (memory_type == TRITONSERVER_MEMORY_GPU) {
-        RETURN_IF_ERROR(TRITONSERVER_ErrorNew(
-            TRITONSERVER_ERROR_UNSUPPORTED,
-            "failed to get input buffer in CPU memory"));
-      }
+		  // The shape for the entire input patch, [total_batch_size, ...]
+		  std::vector<int64_t> batchn_shape(
+				  input_shape, input_shape + input_dims_count);
+		  if (max_batch_size != 0) {
+			  batchn_shape[0] = total_batch_size;
+		  }
 
-      if ((uint64_t)batchn_byte_size != buffer_byte_size) {
-        RETURN_IF_ERROR(TRITONSERVER_ErrorNew(
-            TRITONSERVER_ERROR_UNSUPPORTED,
-            std::string(
-                "expected " + std::to_string(batchn_byte_size) +
-                " bytes of data in input buffer, got " +
-                std::to_string(buffer_byte_size) + " bytes.")
-                .c_str()));
-      }
+		  const int64_t batchn_byte_size = GetByteSize(input_datatype, batchn_shape);
 
-      // Set the input blob to the buffer without allocating any new memory
-      int64_t input_size = GetElementCount(batchn_shape);
-      //printf("input_size: %ld, input_name: %s\n", input_size, input_name);
-      //printf("infer_request_num_: %d\n", infer_request_num_);
+		  const char* input_buffer;
+		  //const char* input_buffer;
+		  size_t buffer_byte_size;
+		  TRITONSERVER_MemoryType memory_type;
+		  int64_t memory_type_id;
+		  RETURN_IF_ERROR(collector.ProcessTensor(
+					  input_name, nullptr, 0,
+					  {{TRITONSERVER_MEMORY_CPU_PINNED, 0}, {TRITONSERVER_MEMORY_CPU, 0}},
+					  &input_buffer, &buffer_byte_size, &memory_type, &memory_type_id));
+		  if (memory_type == TRITONSERVER_MEMORY_GPU) {
+			  RETURN_IF_ERROR(TRITONSERVER_ErrorNew(
+						  TRITONSERVER_ERROR_UNSUPPORTED,
+						  "failed to get input buffer in CPU memory"));
+		  }
 
-      std::vector<unsigned long, std::allocator<unsigned long>> input_shape_tmp;
-      for(unsigned long i = 0; i < batchn_shape.size(); i++)
-      {
-          if(i == 0)
-              input_shape_tmp.push_back(batchn_shape[i]/infer_request_num_);
-          else
-              input_shape_tmp.push_back(batchn_shape[i]);
-      }
+		  if ((uint64_t)batchn_byte_size != buffer_byte_size) {
+			  RETURN_IF_ERROR(TRITONSERVER_ErrorNew(
+						  TRITONSERVER_ERROR_UNSUPPORTED,
+						  std::string(
+							  "expected " + std::to_string(batchn_byte_size) +
+							  " bytes of data in input buffer, got " +
+							  std::to_string(buffer_byte_size) + " bytes.")
+						  .c_str()));
+		  }
 
-      ov::Tensor input_tensor;
-      InferReqWrap::Ptr infer_request_tmp;
+		  // Set the input blob to the buffer without allocating any new memory
+		  int64_t input_size = GetElementCount(batchn_shape);
+		  //printf("input_size: %ld, input_name: %s\n", input_size, input_name);
+		  //printf("infer_request_num_: %d\n", infer_request_num_);
 
-      const void* input_buffer_ptr = (const void *)(input_buffer); 
-      auto input_data =  reinterpret_cast<float*>(const_cast<void*>(input_buffer_ptr));   
-      auto size_of_piece = input_size/infer_request_num_;
-      for(int n = 0; n < infer_request_num_; n++)
-      {
-	      if (input_idx == 0)
-		      infer_request_tmp = infer_request_->get_idle_request();
-	      else
-		      infer_request_tmp = infer_request_->requests.at(n);
-              //printf("size_of_piece: %ld\n", size_of_piece);
-	      //size_t id = infer_request_tmp->_id;
-	      //printf("request id: %ld\n", id);
+		  std::vector<unsigned long, std::allocator<unsigned long>> input_shape_tmp;
+		  for(unsigned long i = 0; i < batchn_shape.size(); i++)
+		  {
+			  if(i == 0)
+				  input_shape_tmp.push_back(batchn_shape[i]/infer_request_num_);
+			  else
+				  input_shape_tmp.push_back(batchn_shape[i]);
+		  }
+
+		  ov::Tensor input_tensor;
+
+		  const void* input_buffer_ptr = (const void *)(input_buffer); 
+		  auto input_data =  reinterpret_cast<float*>(const_cast<void*>(input_buffer_ptr));   
+		  auto size_of_piece = input_size/infer_request_num_;
 
 
-	      //uint64_t ov_init_start_ns = 0;
-	      //SET_TIMESTAMP(ov_init_start_ns);
-	      if (input_datatype == TRITONSERVER_TYPE_FP32)
-		      input_tensor = ov::Tensor(ov::element::f32, input_shape_tmp,    
-				      input_data+n*(size_of_piece));     
-	      if (input_datatype == TRITONSERVER_TYPE_INT32)
-		      input_tensor = ov::Tensor(ov::element::i32, input_shape_tmp,    
-				      input_data+n*(size_of_piece));     
+		  //uint64_t ov_init_start_ns = 0;
+		  //SET_TIMESTAMP(ov_init_start_ns);
+		  if (input_datatype == TRITONSERVER_TYPE_FP32)
+			  input_tensor = ov::Tensor(ov::element::f32, input_shape_tmp,    
+					  input_data+n*(size_of_piece));     
+		  if (input_datatype == TRITONSERVER_TYPE_INT32)
+			  input_tensor = ov::Tensor(ov::element::i32, input_shape_tmp,    
+					  input_data+n*(size_of_piece));     
 
-	      auto requestTensor = infer_request_tmp->_request.get_tensor(name_node_map_[input_name]);
-	      //requestTensor.set_shape(input_shape_tmp);
+		  auto requestTensor = infer_request_tmp->_request.get_tensor(name_node_map_[input_name]);
+		  //requestTensor.set_shape(input_shape_tmp);
 
 #if 0
-	      printf("input_name: %s, input get_byte_size: %zu, output get_byte_size: %zu\n", input_name, input_tensor.get_byte_size(), requestTensor.get_byte_size());
+		  printf("input_name: %s, input get_byte_size: %zu, output get_byte_size: %zu\n", input_name, input_tensor.get_byte_size(), requestTensor.get_byte_size());
 #endif
-	      if (input_tensor.get_shape() != requestTensor.get_shape() || input_tensor.get_byte_size() != requestTensor.get_byte_size()) {
-	      	      throw std::runtime_error(
-	      				      "Source and destination tensors shapes and byte sizes are expected to be equal for data copying.");
-	      	      }
+		  if (input_tensor.get_shape() != requestTensor.get_shape() || input_tensor.get_byte_size() != requestTensor.get_byte_size()) {
+			  throw std::runtime_error(
+					  "Source and destination tensors shapes and byte sizes are expected to be equal for data copying.");
+		  }
 
-	      memcpy(requestTensor.data(), input_tensor.data(), input_tensor.get_byte_size());
-	      //infer_request_tmp->_request.set_tensor(name_node_map_[input_name], input_tensor);
-    }
+		  memcpy(requestTensor.data(), input_tensor.data(), input_tensor.get_byte_size());
+		  //infer_request_tmp->_request.set_tensor(name_node_map_[input_name], input_tensor);
+
+	  }
+	  // Run...
+	  //uint64_t one_request_prepare_end_ns = 0;
+	  //SET_TIMESTAMP(one_request_prepare_end_ns);
+	  //printf("request id: %d, prepare time: %ld\n", n, one_request_prepare_end_ns-one_request_prepare_start_ns);
+
+	  Infer(responses, request_count, infer_request_tmp->_request);
+
+	  //uint64_t start_ns = 0;
+	  //SET_TIMESTAMP(start_ns);
+	  //printf("start_async: %d, start time: %ld\n", n, start_ns - one_request_prepare_end_ns);
   }
+  infer_request_->wait_all();
   return nullptr;
 }
 

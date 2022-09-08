@@ -16,6 +16,8 @@
 #include <string>
 #include <vector>
 
+#include "triton/backend/backend_common.h"
+
 // clang-format off
 // clang-format on
 
@@ -102,7 +104,9 @@ public:
     void put_idle_request(size_t id) {
         std::unique_lock<std::mutex> lock(_mutex);
         _idleIds.push(id);
-        //printf("put_idle_request: %ld\n", id);
+	//uint64_t put_idle_ns = 0;
+        //SET_TIMESTAMP(put_idle_ns);
+        //printf("put_idle_request: %ld, put_idle_ns: %ld\n", id, put_idle_ns);
         _cv.notify_one();
     }
 
