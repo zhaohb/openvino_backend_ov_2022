@@ -35,8 +35,6 @@
 #include <vector>
 #include <string>
 #include "openvino_utils.h"
-#include "infer_request_wrap.h"
-#include "shared_tensor_allocator.h"
 #include "triton/backend/backend_input_collector.h"
 #include "triton/backend/backend_memory.h"
 #include "triton/backend/backend_model.h"
@@ -111,10 +109,9 @@ class ModelState : public BackendModel {
   // Creates an infer request object on the specified device.
   TRITONSERVER_Error* CreateInferRequest(
       //changed by zhaohb for support ov 2022.1
-      const std::string& device, InferRequestsQueue** infer_request);
+      const std::string& device, ov::InferRequest* infer_request);
       //const std::string& device, InferenceEngine::InferRequest* infer_request);
 
-  TRITONSERVER_Error* SetInferRequestNum(int32_t * infer_request_num_);
   TRITONSERVER_Error* SetNameNodeMap(std::map<std::string, ov::Output<const ov::Node> > * name_node_map_);
 
   //delete by zhaohb, can find api in 2022.1
@@ -133,7 +130,6 @@ class ModelState : public BackendModel {
 
   bool SkipDynamicBatchSize() { return skip_dynamic_batchsize_; }
   bool EnableBatchPadding() { return enable_padding_; }
-  int32_t infer_request_num;
   std::map<std::string, ov::Output<const ov::Node> > name_node_map;
 
  private:
@@ -317,11 +313,7 @@ TRITONSERVER_Error*
 ModelState::LoadCpuExtensions(triton::common::TritonJson::Value& params)
 {
   std::string cpu_ext_path;
-  std::string infer_request_num_tmp;
   ReadParameter(params, "CPU_EXTENSION_PATH", &(cpu_ext_path));
-  ReadParameter(params, "CPU_REQUEST_NUM", &(infer_request_num_tmp));
-  infer_request_num = atoi(infer_request_num_tmp.c_str());
-  //printf("infer_request_num: %d\n", infer_request_num);
   
   if (!cpu_ext_path.empty()) {
     // CPU (MKLDNN) extensions is loaded as a shared library and passed as a
@@ -510,28 +502,15 @@ ModelState::LoadNetwork(
 
 TRITONSERVER_Error*
 ModelState::CreateInferRequest(
-    const std::string& device, InferRequestsQueue** infer_request)
-    //const std::string& device, InferenceEngine::InferRequest* infer_request)
+    const std::string& device, ov::InferRequest* infer_request)
 {
-  //RETURN_IF_OPENVINO_ASSIGN_ERROR(
-  //    *infer_request, executable_network_[device].create_infer_request(),
-      //*infer_request, executable_network_[device].CreateInferRequest(),
-  //    "creating infer request object");
-  //InferRequestsQueue* infer_request_tmp  =  new InferRequestsQueue(executable_network_[device], 9);
-  
-  *infer_request  =  new InferRequestsQueue(executable_network_[device], infer_request_num);
-  //infer_request = infer_request_tmp;
-  //RETURN_IF_OPENVINO_ASSIGN_ERROR(infer_request, infer_request_tmp, "creating infer request object");
+  RETURN_IF_OPENVINO_ASSIGN_ERROR(
+      *infer_request, executable_network_[device].create_infer_request(),
+      "creating infer request object");
 
   return nullptr;
 }
 
-TRITONSERVER_Error*
-ModelState::SetInferRequestNum(int32_t * infer_request_num_)
-{
-  *infer_request_num_ = infer_request_num;
-  return nullptr;
-}
 TRITONSERVER_Error* ModelState::SetNameNodeMap(std::map<std::string, ov::Output<const ov::Node> > * name_node_map_)
 {
   *name_node_map_ = name_node_map;
@@ -759,7 +738,6 @@ class ModelInstanceState : public BackendModelInstance {
   // Execute...
   void ProcessRequests(
       TRITONBACKEND_Request** requests, const uint32_t request_count);
-  int32_t infer_request_num_;
   std::map<std::string, ov::Output<const ov::Node> > name_node_map_;
   
 
@@ -771,7 +749,7 @@ class ModelInstanceState : public BackendModelInstance {
   TRITONSERVER_Error* SetBatch(const int batch_size);
   TRITONSERVER_Error* Infer(
       std::vector<TRITONBACKEND_Response*>* responses,
-      const uint32_t response_count, ov::InferRequest infer_request);
+      const uint32_t response_count);
   TRITONSERVER_Error* SetInputTensors(
       size_t total_batch_size, TRITONBACKEND_Request** requests,
       const uint32_t request_count,
@@ -792,9 +770,7 @@ class ModelInstanceState : public BackendModelInstance {
   std::string device_;
 
   //changed by zhaohb
-  //ov::InferRequest infer_request_;
-  InferRequestsQueue* infer_request_;
-  //InferenceEngine::InferRequest infer_request_;
+  ov::InferRequest infer_request_;
 
   std::map<std::string, InferenceEngine::Blob::Ptr> input_blobs_;
 
@@ -871,7 +847,6 @@ ModelInstanceState::ModelInstanceState(
   THROW_IF_BACKEND_INSTANCE_ERROR(
       model_state_->CreateInferRequest(device_, &infer_request_));
 
-  THROW_IF_BACKEND_INSTANCE_ERROR(model_state_->SetInferRequestNum(&infer_request_num_));
   THROW_IF_BACKEND_INSTANCE_ERROR(model_state_->SetNameNodeMap(&name_node_map_));
 }
 
@@ -1063,17 +1038,12 @@ ModelInstanceState::ProcessRequests(
   SET_TIMESTAMP(compute_start_ns);
 
   // Run...
-  for(int n = 0; n < infer_request_num_; n++)
-  {
-	  if (!all_response_failed) {
-		  RESPOND_ALL_AND_SET_TRUE_IF_ERROR(
-				  responses, request_count, all_response_failed,
-				  Infer(&responses, request_count, infer_request_->requests.at(n)->_request));
-	  }
+  if (!all_response_failed) {
+	  RESPOND_ALL_AND_SET_TRUE_IF_ERROR(
+			  responses, request_count, all_response_failed,
+			  Infer(&responses, request_count));
   }
 
-  infer_request_->wait_all();
-  //printf("after wait_all!!!\n");
   uint64_t compute_end_ns = 0;
   SET_TIMESTAMP(compute_end_ns);
 
@@ -1140,15 +1110,9 @@ ModelInstanceState::SetBatch(const int batch_size)
 TRITONSERVER_Error*
 ModelInstanceState::Infer(
     std::vector<TRITONBACKEND_Response*>* responses,
-    const uint32_t response_count, ov::InferRequest infer_request)
-    //const uint32_t response_count)
+    const uint32_t response_count)
 {
-  //changed by zhaohb
-  RETURN_IF_OPENVINO_ERROR(infer_request.wait(), "waiting inference");
-  RETURN_IF_OPENVINO_ERROR(infer_request.start_async(), "running inference");
-  //infer_request.start_async();
-  //RETURN_IF_OPENVINO_ERROR(infer_request_.infer(), "running inference");
-  //RETURN_IF_OPENVINO_ERROR(infer_request_.Infer(), "running inference");
+  RETURN_IF_OPENVINO_ERROR(infer_request_.infer(), "running inference");
 
   return nullptr;
 }
@@ -1227,60 +1191,33 @@ ModelInstanceState::SetInputTensors(
       }
 
       // Set the input blob to the buffer without allocating any new memory
-      int64_t input_size = GetElementCount(batchn_shape);
-      //printf("input_size: %ld, input_name: %s\n", input_size, input_name);
-      //printf("infer_request_num_: %d\n", infer_request_num_);
-
-      std::vector<unsigned long, std::allocator<unsigned long>> input_shape_tmp;
-      for(unsigned long i = 0; i < batchn_shape.size(); i++)
-      {
-          if(i == 0)
-              input_shape_tmp.push_back(batchn_shape[i]/infer_request_num_);
-          else
-              input_shape_tmp.push_back(batchn_shape[i]);
-      }
 
       ov::Tensor input_tensor;
-      InferReqWrap::Ptr infer_request_tmp;
 
       const void* input_buffer_ptr = (const void *)(input_buffer); 
       auto input_data =  reinterpret_cast<float*>(const_cast<void*>(input_buffer_ptr));   
-      auto size_of_piece = input_size/infer_request_num_;
-      for(int n = 0; n < infer_request_num_; n++)
-      {
-	      if (input_idx == 0)
-		      infer_request_tmp = infer_request_->get_idle_request();
-	      else
-		      infer_request_tmp = infer_request_->requests.at(n);
-              //printf("size_of_piece: %ld\n", size_of_piece);
-	      //size_t id = infer_request_tmp->_id;
-	      //printf("request id: %ld\n", id);
 
 
-	      //uint64_t ov_init_start_ns = 0;
-	      //SET_TIMESTAMP(ov_init_start_ns);
-	      if (input_datatype == TRITONSERVER_TYPE_FP32)
-		      input_tensor = ov::Tensor(ov::element::f32, input_shape_tmp,    
-				      input_data+n*(size_of_piece));     
-	      if (input_datatype == TRITONSERVER_TYPE_INT32)
-		      input_tensor = ov::Tensor(ov::element::i32, input_shape_tmp,    
-				      input_data+n*(size_of_piece));     
+      //uint64_t ov_init_start_ns = 0;
+      //SET_TIMESTAMP(ov_init_start_ns);
+      input_tensor = ov::Tensor(ConvertToOpenVINOElement(input_datatype), 
+                                std::vector<size_t>(batchn_shape.begin(), batchn_shape.end()),    
+		                input_data);     
 
-	      auto requestTensor = infer_request_tmp->_request.get_tensor(name_node_map_[input_name]);
-	      //requestTensor.set_shape(input_shape_tmp);
+      auto requestTensor = infer_request_.get_tensor(name_node_map_[input_name]);
+      //requestTensor.set_shape(input_shape_tmp);
 
 #if 0
-	      printf("input_name: %s, input get_byte_size: %zu, output get_byte_size: %zu\n", input_name, input_tensor.get_byte_size(), requestTensor.get_byte_size());
+      printf("input_name: %s, input get_byte_size: %zu, output get_byte_size: %zu\n", input_name, input_tensor.get_byte_size(), requestTensor.get_byte_size());
 #endif
-	      if (input_tensor.get_shape() != requestTensor.get_shape() || input_tensor.get_byte_size() != requestTensor.get_byte_size()) {
-	      	      throw std::runtime_error(
-	      				      "Source and destination tensors shapes and byte sizes are expected to be equal for data copying.");
-	      	      }
+      if (input_tensor.get_shape() != requestTensor.get_shape() || input_tensor.get_byte_size() != requestTensor.get_byte_size()) {
+	      throw std::runtime_error(
+			      "Source and destination tensors shapes and byte sizes are expected to be equal for data copying.");
+      }
 
-	      memcpy(requestTensor.data(), input_tensor.data(), input_tensor.get_byte_size());
-	      //infer_request_tmp->_request.set_tensor(name_node_map_[input_name], input_tensor);
+      memcpy(requestTensor.data(), input_tensor.data(), input_tensor.get_byte_size());
+      //infer_request_.set_tensor(name_node_map_[input_name], input_tensor);
     }
-  }
   return nullptr;
 }
 
@@ -1295,56 +1232,18 @@ ModelInstanceState::ReadOutputTensors(
       model_state_->MaxBatchSize() > 0, model_state_->EnablePinnedInput(),
       CudaStream());
 
-
-   std::map<std::string, std::vector<long int64_t>> output_name_shape;
-   triton::common::TritonJson::Value ios;
-   RETURN_IF_ERROR(model_state_->ModelConfig().MemberAsArray("output", &ios));
-   for (size_t i = 0; i < ios.ArraySize(); i++) {
-	   triton::common::TritonJson::Value io;
-	   RETURN_IF_ERROR(ios.IndexAsObject(i, &io));
-	   std::string io_name;
-	   RETURN_IF_ERROR(io.MemberAsString("name", &io_name));
-	   std::string io_dtype;
-	   RETURN_IF_ERROR(io.MemberAsString("data_type", &io_dtype));
-
-	   std::vector<int64_t> dims;
-           RETURN_IF_ERROR(ParseShape(io, "dims", &dims));
-           output_name_shape[io_name] = dims;
-   }
-
-
   bool cuda_copy = false;
   for (size_t idx = 0; idx < output_names.size(); idx++) {
     std::string name = output_names[idx];
 
-    auto output_element = GetElementCount(output_name_shape[name]);
-    auto output_bytes = output_element*4; // data type is fp32
-    auto allocator = std::make_shared<SharedTensorAllocator>(output_bytes);
-    auto data = reinterpret_cast<float*>(allocator->get_buffer());
-    for (int n = 0; n < infer_request_num_; n++)
-    {
-        auto output_tmp = infer_request_->requests.at(n)->_request.get_tensor(name);
-        auto output_shape = output_tmp.get_shape();
-        float * output_data = reinterpret_cast<float*>(output_tmp.data());
-#if 0
-        printf("name: %s, %d output data[0]: %f\n", name.c_str(), n, output_data[0]);
-        printf("name: %s, %d output data[255]: %f\n", name.c_str(), n, output_data[255]);
-#endif
-
-        memcpy(data+n*output_element/infer_request_num_, output_data, output_element/infer_request_num_*4); 
-    }
-
-#if 0
-    for(int i = 0; i < 2048; i+=256)
-    {
-        printf("data[%d]: %f\n", i, data[i]);
-    }
-#endif
+    ov::Tensor output_tensor = infer_request_.get_tensor(name);
+    std::vector<int64_t> output_shape =
+	    ConvertToSignedShape(output_tensor.get_shape());
 
     responder.ProcessTensor(
         name,
-        TRITONSERVER_TYPE_FP32,
-        output_name_shape[name], reinterpret_cast<const char*>(data), TRITONSERVER_MEMORY_CPU, 0);
+        ConvertFromOpenVINOElement(output_tensor.get_element_type()),
+        output_shape, reinterpret_cast<const char*>(output_tensor.data()), TRITONSERVER_MEMORY_CPU, 0);
     }
 
   // Finalize and wait for any pending buffer copies.
