@@ -174,9 +174,6 @@ RUN /bin/bash -c 'cmake \
         -DNGRAPH_ONNX_IMPORT_ENABLE=OFF \
         -DNGRAPH_DEPRECATED_ENABLE=FALSE \
         .. && \
-    TEMPCV_DIR=/workspace/openvino/temp/opencv_4* && \
-    OPENCV_DIRS=$(ls -d -1 ${TEMPCV_DIR}) && \
-    export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${OPENCV_DIRS[0]}/opencv/lib && \
     make -j$(nproc) install'
 
 WORKDIR /opt/openvino
@@ -186,6 +183,7 @@ RUN mkdir -p include && \
     cp -r /workspace/install/runtime/include/ngraph include/. && \
     cp -r /workspace/install/runtime/include/openvino include/.
 RUN mkdir -p lib && \
+    cp /workspace/install/runtime/lib/intel64/libgna.so.2 lib/. && \
     cp /workspace/install/runtime/lib/intel64/*.so lib/. && \
     cp /workspace/install/runtime/3rdparty/tbb/lib/* lib/.
 '''
